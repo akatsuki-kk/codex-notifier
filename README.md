@@ -66,13 +66,33 @@ go build ./cmd/codex-notifier
 
 ### 手動通知
 
-通常 CLI をそのまま使いたい場合は `notify` を使います。Codex は `AGENTS.md` の指示に従って、承認が必要になりそうな操作の前に次のようなコマンドを実行します。
+通常 CLI をそのまま使いたい場合は `notify` を使います。Codex は `AGENTS.md` の指示に従って、承認が必要になりそうな操作の前に `--kind` と `--summary` を必ず指定して次のようなコマンドを実行します。追加する instruction 文面は英語で統一し、通知メッセージそのものは日本語で書く前提です。
 
 ```bash
 ./codex-notifier notify \
   --kind approval-pending \
-  --summary "About to request elevated permissions"
+  --summary "これから昇格権限の確認を求めます"
 ```
+
+`--kind` の指定方法:
+
+- `approval-pending`
+  - sandbox 外実行や通常の追加承認が必要なとき
+- `mcp-approval-pending`
+  - MCP ツール利用に対する確認が必要なとき
+- `permission-request-pending`
+  - `request_permissions` による権限要求を出す直前
+- `skill-approval-pending`
+  - skill 実行に確認が必要なとき
+
+`--summary` の指定方法:
+
+- 1 行の短い日本語文で「これから何の確認を出すか」を書く
+- instruction 自体は英語で追加し、`--summary` の本文だけ日本語にする
+- 例:
+  - `これから昇格権限の確認を求めます`
+  - `これから MCP postgres_lm_local の利用確認を求めます`
+  - `これからネットワークアクセス権限の確認を求めます`
 
 利用できる `kind`:
 

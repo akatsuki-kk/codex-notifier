@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
-	"strings"
 )
 
 type Category string
@@ -37,21 +36,22 @@ func (MacOS) Notify(ctx context.Context, event Event) error {
 		return fmt.Errorf("macOS notifications are only supported on darwin")
 	}
 
-	script := fmt.Sprintf(
-		`display notification "%s" with title "%s" subtitle "%s"`,
-		escape(event.Body),
-		escape("Codex Notifier"),
-		escape(event.Subtitle),
-	)
-
-	cmd := exec.CommandContext(ctx, "osascript", "-e", script)
+	cmd := macOSCommand(ctx, event)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("osascript: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("osascript: %w: %s", err, string(out))
 	}
 	return nil
 }
 
-func escape(value string) string {
-	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`)
-	return replacer.Replace(value)
+func macOSCommand(ctx context.Context, event Event) *exec.Cmd {
+	return exec.CommandContext(
+		ctx,
+		"osascript",
+		"-e", `on run argv`,
+		"-e", `display notification (item 1 of argv) with title (item 2 of argv) subtitle (item 3 of argv)`,
+		"-e", `end run`,
+		event.Body,
+		"Codex Notifier",
+		event.Subtitle,
+	)
 }

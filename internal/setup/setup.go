@@ -255,10 +255,12 @@ func agentsBlock(binaryPath string) string {
 		managedAgentsStart,
 		"## Codex Notifier",
 		"",
-		fmt.Sprintf("- ユーザー確認が必要になりそうな操作の前に、まず `%s notify` を実行してから本来の操作に進んでください。", binaryPath),
-		"- 対象は sandbox 外実行、`request_permissions`、MCP 利用、skill 実行など、Codex が追加確認を出しそうなケースです。",
-		"- 通知は短く具体的にし、`--kind` には `approval-pending`、`mcp-approval-pending`、`permission-request-pending`、`skill-approval-pending` を使い分けてください。",
-		"- 通知コマンドが失敗した場合も、元の作業内容は勝手に変更せず、失敗内容をユーザーへ共有してください。",
+		fmt.Sprintf("- Before any operation that is likely to require user confirmation, run `%s notify --kind <kind> --summary \"<Japanese notification message>\"` before the original action. `--kind` and `--summary` are required.", binaryPath),
+		"- Apply this to likely confirmation cases such as sandbox escalation, `request_permissions`, MCP usage, and skill execution.",
+		"- Keep all added prompt instructions in English.",
+		"- Write the notification message passed to `--summary` in Japanese, as a single short line describing what confirmation will happen next.",
+		"- Use `approval-pending`, `mcp-approval-pending`, `permission-request-pending`, or `skill-approval-pending` for `--kind`.",
+		"- If the notification command fails, do not silently change the original task. Report the failure to the user first.",
 		managedAgentsEnd,
 	}, "\n")
 }
