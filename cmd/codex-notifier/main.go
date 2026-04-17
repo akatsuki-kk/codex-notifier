@@ -8,11 +8,15 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/akatsuki-kk/codex-notifier/internal/app"
 	"github.com/akatsuki-kk/codex-notifier/internal/emitter"
+	"github.com/akatsuki-kk/codex-notifier/internal/notifier"
+	"github.com/akatsuki-kk/codex-notifier/internal/protocol"
+	"github.com/akatsuki-kk/codex-notifier/internal/setup"
 )
 
 func main() {
@@ -32,6 +36,16 @@ func main() {
 		}
 	case "emit-hook":
 		if err := emitHook(os.Args[2:]); err != nil {
+			log.Printf("error: %v", err)
+			os.Exit(1)
+		}
+	case "notify":
+		if err := notify(os.Args[2:], notifier.NewMacOS()); err != nil {
+			log.Printf("error: %v", err)
+			os.Exit(1)
+		}
+	case "init":
+		if err := initSetup(os.Args[2:]); err != nil {
 			log.Printf("error: %v", err)
 			os.Exit(1)
 		}
@@ -99,8 +113,89 @@ func emitHook(args []string) error {
 	return nil
 }
 
+func notify(args []string, sink notifier.Notifier) error {
+	fs := flag.NewFlagSet("notify", flag.ContinueOnError)
+	kind := fs.String("kind", "approval-pending", "manual notification kind")
+	summary := fs.String("summary", "", "notification summary")
+	details := fs.String("details", "", "optional notification details")
+	fs.SetOutput(os.Stderr)
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	event, err := protocol.ManualNotification(*kind, *summary, *details)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	return sink.Notify(ctx, event)
+}
+
+func initSetup(args []string) error {
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	codexHomeDefault := os.Getenv("CODEX_HOME")
+	if codexHomeDefault == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("resolve home directory: %w", err)
+		}
+		codexHomeDefault = filepath.Join(homeDir, ".codex")
+	}
+
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve executable path: %w", err)
+	}
+	exePath, err = filepath.Abs(exePath)
+	if err != nil {
+		return fmt.Errorf("resolve absolute executable path: %w", err)
+	}
+
+	codexHome := fs.String("codex-home", codexHomeDefault, "Codex home directory")
+	binaryPath := fs.String("binary-path", exePath, "codex-notifier binary path")
+	enableAgents := fs.Bool("enable-agents", true, "configure AGENTS.md and rules")
+	enableStopHook := fs.Bool("enable-stop-hook", true, "configure stop hook and codex_hooks")
+	backup := fs.Bool("backup", true, "write .bak files before updating existing files")
+	serverURL := fs.String("server-url", "http://127.0.0.1:8787/events", "event endpoint used by stop hook")
+	fs.SetOutput(os.Stderr)
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	binaryAbs, err := filepath.Abs(*binaryPath)
+	if err != nil {
+		return fmt.Errorf("resolve binary path: %w", err)
+	}
+
+	results, err := setup.Run(setup.Options{
+		CodexHome:      *codexHome,
+		BinaryPath:     binaryAbs,
+		EnableAgents:   *enableAgents,
+		EnableStopHook: *enableStopHook,
+		Backup:         *backup,
+		ServerURL:      *serverURL,
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, result := range results {
+		fmt.Printf("%s: %s\n", result.Status, result.Path)
+	}
+	fmt.Println("next: codex-notifier serve --listen 127.0.0.1:8787")
+	fmt.Println("next: restart Codex to load the updated configuration")
+	return nil
+}
+
 func usage() {
 	fmt.Fprintln(os.Stderr, "Usage:")
 	fmt.Fprintln(os.Stderr, "  codex-notifier serve --listen 127.0.0.1:8787")
 	fmt.Fprintln(os.Stderr, "  codex-notifier emit-hook --server http://127.0.0.1:8787/events --event-name stop")
+	fmt.Fprintln(os.Stderr, "  codex-notifier notify --kind approval-pending --summary \"About to request approval\"")
+	fmt.Fprintln(os.Stderr, "  codex-notifier init")
 }

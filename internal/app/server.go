@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -72,8 +73,15 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 	defer r.Body.Close()
 
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "failed to read body", http.StatusBadRequest)
+		return
+	}
+	log.Printf("received hook request: method=%s path=%s remote=%s body=%s", r.Method, r.URL.Path, r.RemoteAddr, string(body))
+
 	var event protocol.HookEvent
-	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+	if err := json.Unmarshal(body, &event); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
@@ -81,6 +89,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	log.Printf("decoded hook event: event_name=%s thread_id=%s turn_id=%s hook_run_id=%s", event.EventName, event.ThreadID, event.TurnID, event.HookRunID)
 
 	notification, ok := protocol.ToNotification(event)
 	if !ok {

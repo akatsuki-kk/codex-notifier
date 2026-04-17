@@ -1,62 +1,39 @@
 # codex-notifier
 
-`codex-notifier` は、通常の `codex` CLI hook から送られたイベントを受け取り、ユーザーの介入が必要なタイミングを macOS 通知へ変換する Go ツールです。
+`codex-notifier` は Codex CLI の通知補助ツールです。`Stop` hook による完了通知と、`AGENTS.md` から呼ぶ `notify` コマンドによる擬似的な承認前通知を macOS 通知へ変換します。
 
-## 対応範囲
+## 概要
 
-- `stop` hook 由来の通知
+- `notify`
+  - `AGENTS.md` の指示から直接呼ぶローカル通知
+  - 承認前通知の体験改善向け
+- `serve` + `emit-hook`
+  - `Stop` hook からイベントを受けて完了通知を送る
+  - `127.0.0.1:8787/events` を既定で使用
+- `init`
+  - `~/.codex` 配下の初期設定を自動生成・更新
+  - `AGENTS.md`, `rules/default.rules`, `config.toml`, `hooks.json` を追記マージ
 
-初期実装は `macOS` 専用です。通知から承認や入力回答は行わず、Codex 側で対応します。
+初期実装は `macOS` 専用です。通知から承認や入力回答は行いません。
 
-## セットアップ
+## クイックスタート
 
 ```bash
 go build ./cmd/codex-notifier
-```
-
-## 使い方
-
-1. notifier サーバーを起動します。
-
-```bash
+./codex-notifier init
 ./codex-notifier serve --listen 127.0.0.1:8787
 ```
 
-2. `~/.codex/config.toml` で hook feature を有効化します。
-
-```toml
-[features]
-codex_hooks = true
-
-[hooks]
-config = "/ABSOLUTE/PATH/TO/hooks.json"
-```
-
-3. hook 設定ファイルを用意します。`hooks.json` の例:
-
-```json
-{
-  "stop": [
-    {
-      "type": "command",
-      "command": [
-        "/ABSOLUTE/PATH/TO/codex-notifier",
-        "emit-hook",
-        "--server",
-        "http://127.0.0.1:8787/events",
-        "--event-name",
-        "stop"
-      ]
-    }
-  ]
-}
-```
-
-4. あとは通常どおり `codex` を起動します。`stop` hook が発火したタイミングで通知が届きます。
+その後 Codex を再起動します。
 
 ## コマンド
 
-```text
+```bash
+./codex-notifier init \
+  --codex-home ~/.codex \
+  --binary-path /ABSOLUTE/PATH/TO/codex-notifier \
+  --server-url http://127.0.0.1:8787/events
+
 ./codex-notifier serve \
   --listen 127.0.0.1:8787 \
   --notify-on action-required \
@@ -65,24 +42,59 @@ config = "/ABSOLUTE/PATH/TO/hooks.json"
 ./codex-notifier emit-hook \
   --server http://127.0.0.1:8787/events \
   --event-name stop
+
+./codex-notifier notify \
+  --kind approval-pending \
+  --summary "About to request elevated permissions" \
+  --details "running command outside the sandbox"
 ```
 
-- `serve --listen`
-  - ローカル HTTP サーバーの listen アドレス
-- `--notify-on`
-  - 通知対象カテゴリ
-  - `action-required`
-- `--dedupe-window`
-  - 同一イベントの重複通知を抑止する時間
-- `emit-hook --server`
-  - hook イベント送信先の URL
-- `emit-hook --event-name`
-  - notifier に送る独自イベント名
-  - MVP では `stop` を想定
+## `init` が行うこと
+
+- `~/.codex/AGENTS.md`
+  - 承認が必要そうな操作の前に `codex-notifier notify` を打つ指示を追加
+- `~/.codex/rules/default.rules`
+  - `notify` だけを承認なしで実行できる `prefix_rule` を追加
+- `~/.codex/config.toml`
+  - `[features] codex_hooks = true` を追加または更新
+- `~/.codex/hooks.json`
+  - `Stop` hook から `emit-hook` を呼ぶ設定を追加または更新
+
+既存ファイルがある場合は内容を残したまま追記マージし、変更前の内容は `.bak` として保存します。
+
+## 運用イメージ
+
+### 手動通知
+
+通常 CLI をそのまま使いたい場合は `notify` を使います。Codex は `AGENTS.md` の指示に従って、承認が必要になりそうな操作の前に次のようなコマンドを実行します。
+
+```bash
+./codex-notifier notify \
+  --kind approval-pending \
+  --summary "About to request elevated permissions"
+```
+
+利用できる `kind`:
+
+- `approval-pending`
+- `mcp-approval-pending`
+- `permission-request-pending`
+- `skill-approval-pending`
+
+### `Stop` hook 通知
+
+`serve` を起動しておくと、Codex の `Stop` hook から `emit-hook` 経由でイベントを受け取り、完了通知を送ります。
 
 ## 注意点
 
-- 通知は app-server の内部イベント互換ではなく、hook から送る独自イベントです。
-- `hooks.json` の書式や `config.toml` の hook 設定は、利用している Codex CLI 側の hook 機能に依存します。
-- notifier は `127.0.0.1` 向けのローカル受信を前提にしています。
-- macOS 通知は `osascript` を使って送信します。
+- `notify` は Codex への指示に依存するため、承認イベントの完全捕捉は保証しません。
+- hook 通知は公式の `hooks.json` discovery を前提にしています。
+- 通知は `osascript` を使って送信します。
+- `init` 実行後は Codex の再起動が必要です。
+
+## 公式ドキュメント
+
+- Hooks: https://developers.openai.com/codex/hooks
+- AGENTS.md: https://developers.openai.com/codex/guides/agents-md
+- Rules: https://developers.openai.com/codex/rules
+- Configuration Reference: https://developers.openai.com/codex/config-reference
