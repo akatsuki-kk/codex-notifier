@@ -52,7 +52,7 @@ go build ./cmd/codex-notifier
 ## `init` が行うこと
 
 - `~/.codex/AGENTS.md`
-  - 承認が必要そうな操作の前に `codex-notifier notify` を打つ指示を追加
+  - 実行権限を先に確認し、権限が足りない場合だけ `codex-notifier notify` を打つ指示を追加
 - `~/.codex/rules/default.rules`
   - `notify` だけを承認なしで実行できる `prefix_rule` を追加
 - `~/.codex/config.toml`
@@ -66,7 +66,7 @@ go build ./cmd/codex-notifier
 
 ### 手動通知
 
-通常 CLI をそのまま使いたい場合は `notify` を使います。Codex は `AGENTS.md` の指示に従って、承認が必要になりそうな操作の前に `--kind` と `--summary` を必ず指定して次のようなコマンドを実行します。追加する instruction 文面は英語で統一し、通知メッセージそのものは日本語で書く前提です。
+通常 CLI をそのまま使いたい場合は `notify` を使います。Codex は `AGENTS.md` の指示に従って、まず対象コマンドやツール呼び出しに実行権限があるかを確認します。追加のユーザー確認が必要な場合だけ、`--kind` と `--summary` を指定して通知します。追加する instruction 文面は英語で統一し、通知メッセージそのものは日本語で書く前提です。
 
 ```bash
 ./codex-notifier notify \
@@ -77,7 +77,7 @@ go build ./cmd/codex-notifier
 `--kind` の指定方法:
 
 - `approval-pending`
-  - sandbox 外実行や通常の追加承認が必要なとき
+  - コマンド実行権限が足りず、一般的な追加承認が必要なとき
 - `mcp-approval-pending`
   - MCP ツール利用に対する確認が必要なとき
 - `permission-request-pending`
@@ -88,6 +88,7 @@ go build ./cmd/codex-notifier
 `--summary` の指定方法:
 
 - 1 行の短い日本語文で「これから何の確認を出すか」を書く
+- 1 行の短い日本語文で「権限がないため、これから何の確認を出すか」を書く
 - instruction 自体は英語で追加し、`--summary` の本文だけ日本語にする
 - 例:
   - `これから昇格権限の確認を求めます`
