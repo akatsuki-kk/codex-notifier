@@ -11,12 +11,7 @@ import (
 	"strings"
 )
 
-const (
-	managedAgentsStart = "<!-- codex-notifier:init start -->"
-	managedAgentsEnd   = "<!-- codex-notifier:init end -->"
-	managedRulesStart  = "# codex-notifier:init start"
-	managedRulesEnd    = "# codex-notifier:init end"
-)
+const ()
 
 type Options struct {
 	CodexHome      string
@@ -50,22 +45,6 @@ func Run(opts Options) ([]Result, error) {
 		return nil, err
 	}
 	results = append(results, configResults...)
-
-	if opts.EnableAgents {
-		agentsPath := filepath.Join(opts.CodexHome, "AGENTS.md")
-		status, err := writeManagedTextFile(agentsPath, agentsBlock(opts.BinaryPath), managedAgentsStart, managedAgentsEnd, opts.Backup)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, Result{Path: agentsPath, Status: status})
-
-		rulesPath := filepath.Join(opts.CodexHome, "rules", "default.rules")
-		status, err = writeManagedTextFile(rulesPath, rulesBlock(opts.BinaryPath), managedRulesStart, managedRulesEnd, opts.Backup)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, Result{Path: rulesPath, Status: status})
-	}
 
 	if opts.EnableStopHook {
 		hooksPath := filepath.Join(opts.CodexHome, "hooks.json")
@@ -141,44 +120,6 @@ func mergeConfigToml(content string, enableStopHook bool) string {
 	return normalizeSpacing(strings.Join(lines, "\n"))
 }
 
-func writeManagedTextFile(path, block, startMarker, endMarker string, backup bool) (string, error) {
-	content, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return "", fmt.Errorf("read %s: %w", path, err)
-	}
-
-	updated, err := mergeManagedBlock(string(content), block, startMarker, endMarker)
-	if err != nil {
-		return "", err
-	}
-	return writeFileIfChanged(path, []byte(updated), backup)
-}
-
-func mergeManagedBlock(existing, block, startMarker, endMarker string) (string, error) {
-	managed := strings.TrimRight(block, "\n")
-	if existing == "" {
-		return managed + "\n", nil
-	}
-
-	start := strings.Index(existing, startMarker)
-	end := strings.Index(existing, endMarker)
-	if start >= 0 || end >= 0 {
-		if start < 0 || end < 0 || end < start {
-			return "", fmt.Errorf("managed block markers are inconsistent")
-		}
-		end += len(endMarker)
-		replaced := existing[:start] + managed + existing[end:]
-		return normalizeSpacing(replaced), nil
-	}
-
-	body := strings.TrimRight(existing, "\n")
-	if body != "" {
-		body += "\n\n"
-	}
-	body += managed + "\n"
-	return body, nil
-}
-
 func writeHooksFile(path string, opts Options, backup bool) (string, error) {
 	type hooksFile struct {
 		Hooks map[string]json.RawMessage `json:"hooks"`
@@ -248,42 +189,6 @@ func writeFileIfChanged(path string, content []byte, backup bool) (string, error
 		return "created", nil
 	}
 	return "updated", nil
-}
-
-func agentsBlock(binaryPath string) string {
-	return strings.Join([]string{
-		managedAgentsStart,
-		"## Codex Notifier",
-		"",
-		"- Before running a command or tool call, first check whether you already have permission to execute it without additional user confirmation.",
-		fmt.Sprintf("- If execution permission is not already available and user confirmation will be required, run `%s notify --kind <kind> --summary \"<Japanese notification message>\"` before requesting that confirmation. `--kind` and `--summary` are required.", binaryPath),
-		"- Apply this to permission gaps such as sandbox escalation, `request_permissions`, MCP usage, and skill execution.",
-		"- Keep all added prompt instructions in English.",
-		"- Write the notification message passed to `--summary` in Japanese, as a single short line describing the confirmation that will be requested next.",
-		"- Use `approval-pending` for general command execution permission gaps, `mcp-approval-pending` for MCP approval, `permission-request-pending` for explicit `request_permissions`, and `skill-approval-pending` for skill execution approval.",
-		"- If the notification command fails, do not silently change the original task. Report the failure to the user first.",
-		managedAgentsEnd,
-	}, "\n")
-}
-
-func rulesBlock(binaryPath string) string {
-	return strings.Join([]string{
-		managedRulesStart,
-		"prefix_rule(",
-		fmt.Sprintf("    pattern = [%q, %q],", binaryPath, "notify"),
-		"    decision = \"allow\",",
-		"    justification = \"Allow local Codex approval notifications without an extra prompt.\",",
-		"    match = [",
-		fmt.Sprintf("        %q,", binaryPath+" notify --kind approval-pending --summary About_to_request_approval"),
-		fmt.Sprintf("        %q,", binaryPath+" notify --kind mcp-approval-pending --summary About_to_use_MCP"),
-		"    ],",
-		"    not_match = [",
-		fmt.Sprintf("        %q,", binaryPath+" serve --listen 127.0.0.1:8787"),
-		fmt.Sprintf("        %q,", binaryPath+" emit-hook --event-name stop"),
-		"    ],",
-		")",
-		managedRulesEnd,
-	}, "\n")
 }
 
 func isSectionHeader(value string) bool {

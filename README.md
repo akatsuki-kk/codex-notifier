@@ -1,38 +1,40 @@
 # codex-notifier
 
-`codex-notifier` は Codex CLI の通知補助ツールです。`Stop` hook による完了通知と、`AGENTS.md` から呼ぶ `notify` コマンドによる擬似的な承認前通知を macOS 通知へ変換します。
+`codex-notifier` is a macOS notifier for Codex. The primary mode is `codex app-server` integration: it watches app-server events and sends Japanese notifications for approval-required states and turn completion.
 
-## 概要
-
-- `notify`
-  - `AGENTS.md` の指示から直接呼ぶローカル通知
-  - 承認前通知の体験改善向け
-- `serve` + `emit-hook`
-  - `Stop` hook からイベントを受けて完了通知を送る
-  - `127.0.0.1:8787/events` を既定で使用
-- `init`
-  - `~/.codex` 配下の初期設定を自動生成・更新
-  - `AGENTS.md`, `rules/default.rules`, `config.toml`, `hooks.json` を追記マージ
-
-初期実装は `macOS` 専用です。通知から承認や入力回答は行いません。
-
-## クイックスタート
+## Quick Start
 
 ```bash
 go build ./cmd/codex-notifier
-./codex-notifier init
-./codex-notifier serve --listen 127.0.0.1:8787
+./codex-notifier run-local
 ```
 
-その後 Codex を再起動します。
+`run-local` starts `codex app-server` in the target worktree, waits for the WebSocket endpoint to become ready, then starts the notifier watcher against that server.
 
-## コマンド
+## Main Mode
+
+`run-local` and `watch-app-server` listen to app-server JSON-RPC messages and send notifications for:
+
+- `item/commandExecution/requestApproval`
+- `item/fileChange/requestApproval`
+- `item/tool/requestUserInput`
+- `turn/completed`
+- `thread/status/changed` with `waitingOnApproval` as a fallback approval signal
+
+Notifications are shown in Japanese. The notifier is observe-only: it does not approve, deny, or answer requests.
+
+## Commands
 
 ```bash
-./codex-notifier init \
-  --codex-home ~/.codex \
-  --binary-path /ABSOLUTE/PATH/TO/codex-notifier \
-  --server-url http://127.0.0.1:8787/events
+./codex-notifier run-local \
+  --worktree /path/to/worktree \
+  --notify-on action-required,turn-completed \
+  --dedupe-window 30s
+
+./codex-notifier watch-app-server \
+  --server ws://127.0.0.1:4500 \
+  --notify-on action-required,turn-completed \
+  --dedupe-window 30s
 
 ./codex-notifier serve \
   --listen 127.0.0.1:8787 \
@@ -45,76 +47,52 @@ go build ./cmd/codex-notifier
 
 ./codex-notifier notify \
   --kind approval-pending \
-  --summary "About to request elevated permissions" \
-  --details "running command outside the sandbox"
-```
-
-## `init` が行うこと
-
-- `~/.codex/AGENTS.md`
-  - 実行権限を先に確認し、権限が足りない場合だけ `codex-notifier notify` を打つ指示を追加
-- `~/.codex/rules/default.rules`
-  - `notify` だけを承認なしで実行できる `prefix_rule` を追加
-- `~/.codex/config.toml`
-  - `[features] codex_hooks = true` を追加または更新
-- `~/.codex/hooks.json`
-  - `Stop` hook から `emit-hook` を呼ぶ設定を追加または更新
-
-既存ファイルがある場合は内容を残したまま追記マージし、変更前の内容は `.bak` として保存します。
-
-## 運用イメージ
-
-### 手動通知
-
-通常 CLI をそのまま使いたい場合は `notify` を使います。Codex は `AGENTS.md` の指示に従って、まず対象コマンドやツール呼び出しに実行権限があるかを確認します。追加のユーザー確認が必要な場合だけ、`--kind` と `--summary` を指定して通知します。追加する instruction 文面は英語で統一し、通知メッセージそのものは日本語で書く前提です。
-
-```bash
-./codex-notifier notify \
-  --kind approval-pending \
   --summary "これから昇格権限の確認を求めます"
+
+./codex-notifier init
 ```
 
-`--kind` の指定方法:
+### `run-local`
 
-- `approval-pending`
-  - コマンド実行権限が足りず、一般的な追加承認が必要なとき
-- `mcp-approval-pending`
-  - MCP ツール利用に対する確認が必要なとき
-- `permission-request-pending`
-  - `request_permissions` による権限要求を出す直前
-- `skill-approval-pending`
-  - skill 実行に確認が必要なとき
+- starts `codex app-server` and the notifier together
+- uses the current directory as the default worktree
+- chooses an available localhost port automatically unless `--port` is provided
+- recommended for `1 worktree = 1 server`
 
-`--summary` の指定方法:
+### `watch-app-server`
 
-- 1 行の短い日本語文で「これから何の確認を出すか」を書く
-- 1 行の短い日本語文で「権限がないため、これから何の確認を出すか」を書く
-- instruction 自体は英語で追加し、`--summary` の本文だけ日本語にする
-- 例:
-  - `これから昇格権限の確認を求めます`
-  - `これから MCP postgres_lm_local の利用確認を求めます`
-  - `これからネットワークアクセス権限の確認を求めます`
+- `--server`
+  - Codex app-server WebSocket URL
+- `--notify-on`
+  - `action-required`
+  - `turn-completed`
+- `--dedupe-window`
+  - suppress duplicate notifications for the same event key
 
-利用できる `kind`:
+## Legacy Modes
 
-- `approval-pending`
-- `mcp-approval-pending`
-- `permission-request-pending`
-- `skill-approval-pending`
+The following commands remain for compatibility, but they are no longer the primary path:
 
-### `Stop` hook 通知
+- `watch-app-server`
+  - manual watcher for an already running app-server
+- `serve` / `emit-hook`
+  - old hook-based HTTP bridge
+- `notify`
+  - manual notification command
+- `init`
+  - old setup helper for hook-based flows only
 
-`serve` を起動しておくと、Codex の `Stop` hook から `emit-hook` 経由でイベントを受け取り、完了通知を送ります。
+## Notes
 
-## 注意点
+- `run-local` assumes the `codex` executable is available in `PATH`, unless `--codex-bin` is provided.
+- `watch-app-server` assumes the app-server is already running and reachable.
+- Approval-related app-server events depend on current Codex runtime behavior and subscription behavior.
+- Notifications use `osascript`.
 
-- `notify` は Codex への指示に依存するため、承認イベントの完全捕捉は保証しません。
-- hook 通知は公式の `hooks.json` discovery を前提にしています。
-- 通知は `osascript` を使って送信します。
-- `init` 実行後は Codex の再起動が必要です。
+## Official Docs
 
-## 公式ドキュメント
-
+- App Server: https://developers.openai.com/codex/app-server
+- Agent approvals & security: https://developers.openai.com/codex/agent-approvals-security
 - Hooks: https://developers.openai.com/codex/hooks
 - AGENTS.md: https://developers.openai.com/codex/guides/agents-md
 - Rules: https://developers.openai.com/codex/rules

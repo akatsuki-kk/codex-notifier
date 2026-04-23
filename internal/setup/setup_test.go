@@ -8,7 +8,7 @@ import (
 )
 
 func TestRunCreatesGlobalFiles(t *testing.T) {
-	// 空の codex home に対して初期設定用ファイル一式を生成できることを確認する。
+	// 空の codex home に対して hook 用の初期設定ファイル一式を生成できることを確認する。
 	dir := t.TempDir()
 	results, err := Run(Options{
 		CodexHome:      dir,
@@ -21,12 +21,10 @@ func TestRunCreatesGlobalFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	if len(results) != 4 {
-		t.Fatalf("expected 4 results, got %d", len(results))
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
 	}
 
-	assertContains(t, filepath.Join(dir, "AGENTS.md"), "/tmp/codex-notifier notify")
-	assertContains(t, filepath.Join(dir, "rules", "default.rules"), "decision = \"allow\"")
 	assertContains(t, filepath.Join(dir, "config.toml"), "codex_hooks = true")
 	assertContains(t, filepath.Join(dir, "hooks.json"), "\"Stop\"")
 }
@@ -73,7 +71,7 @@ func TestRunIsIdempotent(t *testing.T) {
 	opts := Options{
 		CodexHome:      dir,
 		BinaryPath:     "/tmp/codex-notifier",
-		EnableAgents:   true,
+		EnableAgents:   false,
 		EnableStopHook: true,
 		Backup:         true,
 		ServerURL:      "http://127.0.0.1:8787/events",

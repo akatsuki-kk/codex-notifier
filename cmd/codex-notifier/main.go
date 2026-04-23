@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/akatsuki-kk/codex-notifier/internal/app"
+	"github.com/akatsuki-kk/codex-notifier/internal/appserver"
 	"github.com/akatsuki-kk/codex-notifier/internal/emitter"
+	"github.com/akatsuki-kk/codex-notifier/internal/localrun"
 	"github.com/akatsuki-kk/codex-notifier/internal/notifier"
 	"github.com/akatsuki-kk/codex-notifier/internal/protocol"
 	"github.com/akatsuki-kk/codex-notifier/internal/setup"
@@ -29,6 +31,16 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "run-local":
+		if err := runLocal(os.Args[2:]); err != nil {
+			log.Printf("error: %v", err)
+			os.Exit(1)
+		}
+	case "watch-app-server":
+		if err := watchAppServer(os.Args[2:]); err != nil {
+			log.Printf("error: %v", err)
+			os.Exit(1)
+		}
 	case "serve":
 		if err := serve(os.Args[2:]); err != nil {
 			log.Printf("error: %v", err)
@@ -55,6 +67,54 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
+}
+
+func runLocal(args []string) error {
+	fs := flag.NewFlagSet("run-local", flag.ContinueOnError)
+	worktree := fs.String("worktree", "", "target worktree; defaults to current directory")
+	port := fs.Int("port", 0, "app-server port; defaults to an ephemeral localhost port")
+	codexBin := fs.String("codex-bin", "codex", "codex executable path")
+	notifyOn := fs.String("notify-on", "action-required,turn-completed", "comma-separated categories to notify")
+	dedupeWindow := fs.Duration("dedupe-window", 30*time.Second, "dedupe window")
+	fs.SetOutput(os.Stderr)
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	return localrun.Run(ctx, localrun.Config{
+		Worktree:     *worktree,
+		Port:         *port,
+		CodexBin:     *codexBin,
+		NotifyOn:     *notifyOn,
+		DedupeWindow: *dedupeWindow,
+	})
+}
+
+func watchAppServer(args []string) error {
+	fs := flag.NewFlagSet("watch-app-server", flag.ContinueOnError)
+	serverURL := fs.String("server", "ws://127.0.0.1:4500", "Codex app-server websocket URL")
+	notifyOn := fs.String("notify-on", "action-required,turn-completed", "comma-separated categories to notify")
+	dedupeWindow := fs.Duration("dedupe-window", 30*time.Second, "dedupe window")
+	fs.SetOutput(os.Stderr)
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	cfg, err := appserver.NewConfig(*serverURL, *notifyOn, *dedupeWindow)
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	watcher := appserver.NewWatcher(cfg)
+	return watcher.Run(ctx)
 }
 
 func serve(args []string) error {
@@ -194,6 +254,8 @@ func initSetup(args []string) error {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "Usage:")
+	fmt.Fprintln(os.Stderr, "  codex-notifier run-local [--worktree PATH] [--port PORT]")
+	fmt.Fprintln(os.Stderr, "  codex-notifier watch-app-server --server ws://127.0.0.1:4500")
 	fmt.Fprintln(os.Stderr, "  codex-notifier serve --listen 127.0.0.1:8787")
 	fmt.Fprintln(os.Stderr, "  codex-notifier emit-hook --server http://127.0.0.1:8787/events --event-name stop")
 	fmt.Fprintln(os.Stderr, "  codex-notifier notify --kind approval-pending --summary \"About to request approval\"")

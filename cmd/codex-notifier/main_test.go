@@ -37,7 +37,7 @@ func TestNotifyRejectsEmptySummary(t *testing.T) {
 }
 
 func TestInitSetupCreatesConfigFiles(t *testing.T) {
-	// init が codex home 配下に初期設定ファイルを生成できることを確認する。
+	// init が codex home 配下に hook 用の初期設定ファイルを生成できることを確認する。
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "codex-notifier")
 	if err := os.WriteFile(bin, []byte(""), 0o755); err != nil {
@@ -55,11 +55,16 @@ func TestInitSetupCreatesConfigFiles(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "config.toml")); err != nil {
 		t.Fatalf("expected config.toml to exist: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "AGENTS.md")); err != nil {
-		t.Fatalf("expected AGENTS.md to exist: %v", err)
-	}
 	if _, err := os.Stat(filepath.Join(dir, "hooks.json")); err != nil {
 		t.Fatalf("expected hooks.json to exist: %v", err)
+	}
+}
+
+func TestRunLocalRejectsMissingWorktree(t *testing.T) {
+	// 存在しない worktree を指定した場合はエラーになることを確認する。
+	err := runLocal([]string{"--worktree", "/path/that/does/not/exist"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }
 
